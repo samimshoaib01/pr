@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlay Sender</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --border: #dfe3e8;
+    --text: #1b1f24;
+    --muted: #697280;
+    --accent: #2563eb;
+    --ok: #15803d;
+    --ok-bg: #e7f6ec;
+    --warn: #a16207;
+    --warn-bg: #fdf4e3;
+    --bad: #b42318;
+    --bad-bg: #fdecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --card: #1c2024;
+      --border: #30363d;
+      --text: #e6e8ea;
+      --muted: #929aa5;
+      --accent: #5b8cff;
+      --ok: #6ee7a0;
+      --ok-bg: #16281d;
+      --warn: #f0c674;
+      --warn-bg: #2a2416;
+      --bad: #ff9b92;
+      --bad-bg: #2d1917;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 999px;
+    font-size: 13px; font-weight: 500;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+  .pill.ok   { color: var(--ok);   background: var(--ok-bg);   border-color: transparent; }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+  .pill.bad  { color: var(--bad);  background: var(--bad-bg);  border-color: transparent; }
+  .pill.warn .dot { animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 110px; resize: vertical;
+    padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    padding: 9px 18px; border-radius: 8px; border: 1px solid transparent;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  #sendBtn { background: var(--accent); color: #fff; }
+  #clearBtn { background: transparent; color: var(--text); border-color: var(--border); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint.dirty { color: var(--warn); font-weight: 600; }
+
+  .live-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; margin-bottom: 8px;
+  }
+  .live-head strong { font-size: 13px; }
+  #liveAge { font-size: 12px; color: var(--muted); }
+  #liveText {
+    margin: 0; padding: 12px; border-radius: 8px;
+    background: var(--bg); border: 1px dashed var(--border);
+    min-height: 54px; max-height: 280px; overflow: auto;
+    font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  #liveText.blank { color: var(--muted); font-style: italic; }
+  .note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Send Text to Overlay</h1>
+
+  <div class="pills">
+    <span class="pill" id="linkPill"><span class="dot"></span><span id="linkText">Connecting…</span></span>
+    <span class="pill" id="overlayPill"><span class="dot"></span><span id="overlayText">Overlay: unknown</span></span>
+  </div>
+
+  <div class="card">
+    <label for="messageInput">Text to send</label>
+    <textarea id="messageInput" placeholder="Type or paste text here…"></textarea>
+    <div class="row">
+      <button id="sendBtn" disabled>Send</button>
+      <button id="clearBtn" disabled>Clear overlay</button>
+      <span class="hint" id="draftHint">⌘/Ctrl + Enter to send</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="live-head">
+      <strong>Live on overlay right now</strong>
+      <span id="liveAge"></span>
+    </div>
+    <pre id="liveText" class="blank">(nothing sent yet)</pre>
+    <p class="note" id="liveNote"></p>
+  </div>
+</div>
+
+<script>
+(function () {
+  const input      = document.getElementById("messageInput");
+  const sendBtn    = document.getElementById("sendBtn");
+  const clearBtn   = document.getElementById("clearBtn");
+  const draftHint  = document.getElementById("draftHint");
+  const linkPill   = document.getElementById("linkPill");
+  const linkText   = document.getElementById("linkText");
+  const ovPill     = document.getElementById("overlayPill");
+  const ovText     = document.getElementById("overlayText");
+  const liveText   = document.getElementById("liveText");
+  const liveAge    = document.getElementById("liveAge");
+  const liveNote   = document.getElementById("liveNote");
+
+  let ws = null;
+  let backoff = 500;
+  let keepAlive = null;
+
+  // Last known server truth. null = we have not heard from the server yet,
+  // so we must not claim anything about the overlay.
+  let state = null;
+  // changedAgo is an age at send time; anchoring it to local receipt avoids
+  // depending on the client's clock matching the server's.
+  let ageBase = null, ageAt = 0;
+
+  function setPill(pill, label, cls, textEl) {
+    pill.className = "pill" + (cls ? " " + cls : "");
+    textEl.textContent = label;
+  }
+
+  function render() {
+    const open = ws && ws.readyState === WebSocket.OPEN;
+    sendBtn.disabled = clearBtn.disabled = !open;
+
+    if (!state) {
+      setPill(ovPill, "Overlay: unknown", "", ovText);
+      // No server state yet, so there is nothing to caveat; the link pill
+      // already shows whether we are still trying to connect.
+      liveNote.textContent = "";
+    } else {
+      const n = state.overlays;
+      if (n > 0) {
+        setPill(ovPill, n === 1 ? "1 overlay connected" : n + " overlays connected", "ok", ovText);
+        liveNote.textContent = "";
+      } else {
+        setPill(ovPill, "No overlay connected", "warn", ovText);
+        liveNote.textContent = "Nobody is receiving. Text is stored and will appear the moment an overlay connects.";
+      }
+
+      const t = state.text || "";
+      liveText.textContent = t || "(blank)";
+      liveText.classList.toggle("blank", t === "");
+    }
+
+    if (!open && state) {
+      liveNote.textContent = "Connection lost — this may be stale.";
+    }
+
+    const t = state ? (state.text || "") : null;
+    if (t !== null && input.value !== t) {
+      draftHint.textContent = "Draft differs from what is live — press Send";
+      draftHint.className = "hint dirty";
+    } else {
+      draftHint.textContent = "⌘/Ctrl + Enter to send";
+      draftHint.className = "hint";
+    }
+  }
+
+  function renderAge() {
+    if (ageBase === null) { liveAge.textContent = ""; return; }
+    const s = Math.round(ageBase + (Date.now() - ageAt) / 1000);
+    liveAge.textContent =
+      s < 5    ? "changed just now" :
+      s < 60   ? "changed " + s + "s ago" :
+      s < 3600 ? "changed " + Math.floor(s / 60) + "m ago" :
+                 "changed " + Math.floor(s / 3600) + "h ago";
+  }
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    // role=sender tells the server to send us state instead of overlay commands.
+    ws = new WebSocket(proto + "//" + location.host + "/?role=sender");
+
+    ws.onopen = function () {
+      backoff = 500;
+      setPill(linkPill, "Connected", "ok", linkText);
+      render();
+      clearInterval(keepAlive);
+      keepAlive = setInterval(function () {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: "ping" }));
+        }
+      }, 25000);
+    };
+
+    ws.onmessage = function (e) {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch (_) { return; }
+      if (msg.action !== "state") return;
+      state = msg;
+      if (msg.changedAgo === null || msg.changedAgo === undefined) {
+        ageBase = null;
+      } else {
+        ageBase = msg.changedAgo; ageAt = Date.now();
+      }
+      render();
+      renderAge();
+    };
+
+    ws.onclose = function () {
+      clearInterval(keepAlive);
+      setPill(linkPill, "Reconnecting…", "warn", linkText);
+      render();
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+
+    ws.onerror = function () { /* onclose always follows; handle it there */ };
+  }
+
+  function send(action, extra) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(Object.assign({ action: action }, extra || {})));
+  }
+
+  sendBtn.addEventListener("click", function () {
+    send("update", { text: input.value });
+  });
+
+  clearBtn.addEventListener("click", function () {
+    send("clear");
+    input.value = "";
+  });
+
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!sendBtn.disabled) sendBtn.click();
+    }
+  });
+
+  setInterval(renderAge, 1000);
+  setPill(linkPill, "Connecting…", "warn", linkText);
+  render();
+  connect();
+})();
+</script>
+</body>
+</html>
